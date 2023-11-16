@@ -1,0 +1,14 @@
+#!/bin/sh
+
+# Kill all previous processes, including the watcher, but not this script itself
+kill `ps | grep tigo-exporter | grep -v grep | awk '{ print $1; }'` >/dev/null 2>&1
+
+if [ "$1" = "stop" ]; then
+	# Nothing more need be done, all daemons should have been stopped by this point
+	echo "Stopped tigo-exporter service."
+	exit 0
+fi
+
+/mnt/ffs/bin/tigo-exporter >/dev/null 2>&1 &
+
+exit 0
