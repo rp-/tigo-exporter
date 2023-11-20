@@ -1,6 +1,5 @@
 # tigo-exporter
-Uses the direct CCA access /cgi-bin/summary_data url to retrieve slightly delayed Tigo data
-and export to prometheus.
+Uses daqs csv data on the tigo CCA and export it to prometheus.
 
 ## Build
 
