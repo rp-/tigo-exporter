@@ -13,7 +13,6 @@ use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::registry::Registry;
 
-const BIND_ADDR: &str = "0.0.0.0:9980";
 const DAQS_DIR: &str = "/mnt/ffs/data/daqs";
 
 // csv relative columns
@@ -46,11 +45,11 @@ struct MyOptions {
     #[options(free)]
     tigo_daqs_data_dir: String,
 
-    #[options(help = "tigo auth user")]
-    tigo_user: Option<String>,
+    #[options(help = "bind ip: default(0.0.0.0)")]
+    bind_ip: Option<String>,
 
-    #[options(help = "tigo password")]
-    tigo_password: Option<String>,
+    #[options(help = "bind port: default(9980)")]
+    bind_port: Option<u16>,
 
     #[options(help = "verbose output")]
     verbose: bool,
@@ -205,8 +204,13 @@ fn main() {
         std::thread::sleep(Duration::from_secs(10));
     });
 
-    let server = Arc::new(tiny_http::Server::http(BIND_ADDR).unwrap());
-    println!("Now listening on port 9980");
+    let bind_address = format!(
+        "{}:{}",
+        opts.bind_ip.unwrap_or("0.0.0.0".to_string()),
+        opts.bind_port.unwrap_or(9980)
+    );
+    let server = Arc::new(tiny_http::Server::http(&bind_address).unwrap());
+    println!("Now listening on {}", bind_address);
 
     for rq in server.incoming_requests() {
         let mut buffer = String::new();
