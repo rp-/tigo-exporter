@@ -20,3 +20,5 @@ And run either `make` or call cross directly:
 
 Copy the build binary into `/mnt/ffs/bin` on your tigo CCA and
 there is also a start script `S060_tigo_exporter` that should be placed in `/mnt/ffs/etc/rc.d`
+
+Per default the metrics can be fetched on `http://TIGO_IP:9980/metrics`
