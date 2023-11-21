@@ -3,7 +3,7 @@ extern crate tiny_http;
 use std::fs::{DirEntry, File};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use std::{thread, vec};
 
 use gumdrop::Options;
@@ -13,6 +13,7 @@ use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::registry::Registry;
 
+const REFRESH_INTERVAL_SEC: u64 = 10;
 const DAQS_DIR: &str = "/mnt/ffs/data/daqs";
 
 // csv relative columns
@@ -149,6 +150,7 @@ fn main() {
 
     let timestamp_label = vec![("local".to_string(), "cca".to_string())];
 
+    let mut last_csv_time: Option<SystemTime> = None;
     let http_client_handle = thread::spawn(move || loop {
         let current_csv_opt = get_newest_csv_file(daqs_data_dir.as_str());
 
@@ -156,7 +158,19 @@ fn main() {
             panic!("No current file found in {}", daqs_data_dir);
         }
 
-        let input_res = File::open(current_csv_opt.unwrap().path());
+        let current_csv = current_csv_opt.unwrap();
+
+        if last_csv_time.is_some()
+            && last_csv_time.unwrap() == current_csv.metadata().unwrap().modified().unwrap()
+        {
+            // no new csv data -> wait
+            std::thread::sleep(Duration::from_secs(REFRESH_INTERVAL_SEC));
+            continue;
+        }
+
+        last_csv_time = Some(current_csv.metadata().unwrap().modified().unwrap());
+
+        let input_res = File::open(current_csv.path());
         match input_res {
             Ok(input) => {
                 // Build the CSV reader and iterate over each record.
@@ -201,7 +215,7 @@ fn main() {
             Err(err) => println!("Unable to open file: {}", err),
         }
 
-        std::thread::sleep(Duration::from_secs(10));
+        std::thread::sleep(Duration::from_secs(REFRESH_INTERVAL_SEC));
     });
 
     let bind_address = format!(
