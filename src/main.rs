@@ -184,16 +184,26 @@ fn main() {
         }
 
         let current_csv = current_csv_opt.unwrap();
+        let cur_csv_modified = current_csv.metadata().unwrap().modified().unwrap();
 
-        if last_csv_time.is_some()
-            && last_csv_time.unwrap() == current_csv.metadata().unwrap().modified().unwrap()
-        {
+        if last_csv_time.is_some() && last_csv_time.unwrap() == cur_csv_modified {
+            match last_csv_time.unwrap().elapsed() {
+                Ok(elapsed) => {
+                    if elapsed > Duration::from_secs(600) {
+                        module_power.clear();
+                        module_rssi.clear();
+                        module_temp.clear();
+                        module_volts.clear();
+                    }
+                }
+                Err(_) => println!("unable to get elapsed time."),
+            };
             // no new csv data -> wait
             std::thread::sleep(Duration::from_secs(REFRESH_INTERVAL_SEC));
             continue;
         }
 
-        last_csv_time = Some(current_csv.metadata().unwrap().modified().unwrap());
+        last_csv_time = Some(cur_csv_modified);
 
         let input_res = File::open(current_csv.path());
         match input_res {
