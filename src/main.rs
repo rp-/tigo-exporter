@@ -1,5 +1,6 @@
 extern crate tiny_http;
 
+use std::collections::HashMap;
 use std::fs::{DirEntry, File};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -15,6 +16,7 @@ use prometheus_client::registry::Registry;
 
 const REFRESH_INTERVAL_SEC: u64 = 10;
 const DAQS_DIR: &str = "/mnt/ffs/data/daqs";
+const MAX_FAIL_COUNT: usize = 35;
 
 // csv relative columns
 const COL_VIN: usize = 0;
@@ -66,6 +68,7 @@ fn update_gauge(
     gauge: &Family<Labels, Gauge<f64, AtomicU64>>,
     module_index: usize,
     value_opt: Option<f64>,
+    fail_count: usize,
 ) {
     let current_label = &Labels {
         name: format!("A{}", module_index),
@@ -73,7 +76,9 @@ fn update_gauge(
     match value_opt {
         Some(value) => gauge.get_or_create(current_label).set(value),
         None => {
-            gauge.remove(current_label);
+            if fail_count > MAX_FAIL_COUNT {
+                gauge.remove(current_label);
+            }
             0.0
         }
     };
@@ -100,6 +105,24 @@ fn get_field_value(field: Option<&str>) -> Option<f64> {
     }
 }
 
+fn increase_or_clear_fail_count(
+    fcm: &mut HashMap<usize, usize>,
+    key: usize,
+    value: Option<f64>,
+) -> bool {
+    if value.is_none() {
+        fcm.insert(key, fcm.get(&key).unwrap_or(&0) + 1);
+        return true;
+    }
+
+    fcm.remove(&key);
+    false
+}
+
+fn get_fail_count_or_default(fcm: &HashMap<usize, usize>, key: usize) -> usize {
+    *fcm.get(&key).unwrap_or(&0)
+}
+
 fn main() {
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
@@ -107,6 +130,8 @@ fn main() {
         orig_hook(panic_info);
         std::process::exit(1);
     }));
+
+    let mut fail_counter_map: HashMap<usize, usize> = HashMap::new();
 
     let opts = MyOptions::parse_args_default_or_exit();
     let daqs_data_dir = if opts.tigo_daqs_data_dir.is_empty() {
@@ -195,11 +220,63 @@ fn main() {
                                 let temp = get_field_value(last.get(start_index + COL_TEMP));
 
                                 // println!("A{}: {:?}/{:?}/{:?}", module_index, vin, rssi, pin);
+                                increase_or_clear_fail_count(
+                                    &mut fail_counter_map,
+                                    start_index + COL_VIN,
+                                    vin,
+                                );
+                                increase_or_clear_fail_count(
+                                    &mut fail_counter_map,
+                                    start_index + COL_RSSI,
+                                    rssi,
+                                );
+                                increase_or_clear_fail_count(
+                                    &mut fail_counter_map,
+                                    start_index + COL_PIN,
+                                    pin,
+                                );
+                                increase_or_clear_fail_count(
+                                    &mut fail_counter_map,
+                                    start_index + COL_TEMP,
+                                    temp,
+                                );
 
-                                update_gauge(&module_volts, module_index, vin);
-                                update_gauge(&module_rssi, module_index, rssi);
-                                update_gauge(&module_power, module_index, pin);
-                                update_gauge(&module_temp, module_index, temp);
+                                update_gauge(
+                                    &module_volts,
+                                    module_index,
+                                    vin,
+                                    get_fail_count_or_default(
+                                        &fail_counter_map,
+                                        start_index + COL_VIN,
+                                    ),
+                                );
+                                update_gauge(
+                                    &module_rssi,
+                                    module_index,
+                                    rssi,
+                                    get_fail_count_or_default(
+                                        &fail_counter_map,
+                                        start_index + COL_RSSI,
+                                    ),
+                                );
+                                update_gauge(
+                                    &module_power,
+                                    module_index,
+                                    pin,
+                                    get_fail_count_or_default(
+                                        &fail_counter_map,
+                                        start_index + COL_PIN,
+                                    ),
+                                );
+                                update_gauge(
+                                    &module_temp,
+                                    module_index,
+                                    temp,
+                                    get_fail_count_or_default(
+                                        &fail_counter_map,
+                                        start_index + COL_TEMP,
+                                    ),
+                                );
                             }
 
                             let last_timestamp = get_field_value(last.get(1));
